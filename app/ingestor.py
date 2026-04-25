@@ -180,21 +180,29 @@ async def _ingest_loop() -> None:
         backoff = min(backoff * 2, 30.0)
 
 async def _prune_loop() -> None:
-    """Periodically remove stale aircraft from in-memory store + close stale flights."""
+    """Periodically remove stale aircraft from in-memory store + close stale flights.
+
+    Broadcasts aircraft_removed events for each pruned aircraft so clients
+    can clean up their map markers.
+    """
     while True:
         try:
             await asyncio.sleep(15)
-            removed = await state_store.prune_stale(
+            removed_icaos = await state_store.prune_stale_and_collect(
                 settings.aircraft_stale_seconds
             )
-            if removed:
-                logger.debug("Pruned %d stale aircraft from memory", removed)
+            for icao in removed_icaos:
+                await broadcaster.publish({
+                    "type": "aircraft_removed",
+                    "data": {"icao": icao},
+                })
+            if removed_icaos:
+                logger.debug("Pruned %d stale aircraft from memory", len(removed_icaos))
             await persistence.close_stale_flights()
         except asyncio.CancelledError:
             raise
         except Exception:
             logger.exception("Prune loop error")
-
 
 async def _cleanup_loop() -> None:
     """Periodically delete data older than retention period."""

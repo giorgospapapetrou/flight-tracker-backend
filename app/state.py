@@ -67,8 +67,8 @@ class AircraftStateStore:
                 if a.last_seen_at.timestamp() >= cutoff
             ]
 
-    async def prune_stale(self, max_age_seconds: int) -> int:
-        """Remove aircraft not seen recently. Returns number removed."""
+    async def prune_stale_and_collect(self, max_age_seconds: int) -> list[str]:
+        """Remove stale aircraft. Returns list of ICAOs removed."""
         async with self._lock:
             now_ts = datetime.now(timezone.utc).timestamp()
             cutoff = now_ts - max_age_seconds
@@ -78,7 +78,6 @@ class AircraftStateStore:
             ]
             for icao in stale:
                 del self._aircraft[icao]
-            return len(stale)
-
+            return stale
 
 state_store = AircraftStateStore()
