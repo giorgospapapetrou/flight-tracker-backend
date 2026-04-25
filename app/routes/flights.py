@@ -4,20 +4,20 @@ from __future__ import annotations
 
 from datetime import date, datetime, time, timedelta, timezone
 
-from fastapi import APIRouter, HTTPException, Query, Depends
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, field_serializer
-from sqlalchemy import func, select
+from sqlalchemy import Integer, func, select
 from sqlalchemy.orm import selectinload
 
-from app.db import Aircraft, Flight, Position, SessionLocal
 from app.auth import require_api_key
-
+from app.db import Aircraft, Flight, Position, SessionLocal
 
 router = APIRouter(
     prefix="/flights",
     tags=["flights"],
     dependencies=[Depends(require_api_key)],
 )
+
 
 class FlightSummary(BaseModel):
     id: int
@@ -27,17 +27,20 @@ class FlightSummary(BaseModel):
     callsign: str | None
     started_at: datetime
     ended_at: datetime | None
+    last_position_at: datetime | None
     position_count: int
+    position_count_with_coords: int
     max_altitude_ft: int | None
     min_altitude_ft: int | None
 
-    @field_serializer("started_at", "ended_at")
+    @field_serializer("started_at", "ended_at", "last_position_at")
     def _serialize_dt(self, dt: datetime | None) -> str | None:
         if dt is None:
             return None
         if dt.tzinfo is None:
             dt = dt.replace(tzinfo=timezone.utc)
         return dt.isoformat().replace("+00:00", "Z")
+
 
 class FlightsResponse(BaseModel):
     flights: list[FlightSummary]
@@ -58,6 +61,7 @@ class PositionPoint(BaseModel):
             dt = dt.replace(tzinfo=timezone.utc)
         return dt.isoformat().replace("+00:00", "Z")
 
+
 class FlightPositionsResponse(BaseModel):
     flight_id: int
     positions: list[PositionPoint]
@@ -77,8 +81,12 @@ async def list_flights(
             select(
                 Flight,
                 func.count(Position.id).label("pos_count"),
+                func.sum(
+                    (Position.lat.is_not(None) & Position.lon.is_not(None)).cast(Integer)
+                ).label("pos_with_coords"),
                 func.max(Position.altitude_ft).label("max_alt"),
                 func.min(Position.altitude_ft).label("min_alt"),
+                func.max(Position.timestamp).label("last_position"),
             )
             .join(Position, Position.flight_id == Flight.id, isouter=True)
             .where(
@@ -101,11 +109,13 @@ async def list_flights(
                 callsign=flight.callsign,
                 started_at=flight.started_at,
                 ended_at=flight.ended_at,
+                last_position_at=last_position,
                 position_count=pos_count or 0,
+                position_count_with_coords=pos_with_coords or 0,
                 max_altitude_ft=max_alt,
                 min_altitude_ft=min_alt,
             )
-            for flight, pos_count, max_alt, min_alt in rows
+            for flight, pos_count, pos_with_coords, max_alt, min_alt, last_position in rows
         ]
         return FlightsResponse(flights=flights)
 
