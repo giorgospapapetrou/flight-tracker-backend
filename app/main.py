@@ -11,7 +11,7 @@ from fastapi import FastAPI
 from app.config import settings
 from app.db import init_db
 from app.ingestor import start_background_tasks
-from app.routes import aircraft, flights
+from app.routes import aircraft, flights, stream
 from app.state import state_store
 
 logging.basicConfig(
@@ -45,6 +45,7 @@ app = FastAPI(
 
 app.include_router(aircraft.router, prefix="/api/v1")
 app.include_router(flights.router, prefix="/api/v1")
+app.include_router(stream.router, prefix="/api/v1")
 
 
 @app.get("/api/v1/health")

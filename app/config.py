@@ -30,5 +30,8 @@ class Settings(BaseSettings):
     # Data retention
     retention_hours: int = 24
 
+    # Authentication
+    api_key: str
+
 
 settings = Settings()

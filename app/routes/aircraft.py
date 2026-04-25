@@ -4,14 +4,19 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel, field_serializer
 
 
 from app.config import settings
 from app.state import state_store
+from app.auth import require_api_key
 
-router = APIRouter(prefix="/aircraft", tags=["aircraft"])
+router = APIRouter(
+    prefix="/aircraft",
+    tags=["aircraft"],
+    dependencies=[Depends(require_api_key)],
+)
 
 
 class AircraftOut(BaseModel):

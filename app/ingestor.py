@@ -15,6 +15,7 @@ from datetime import datetime, timezone
 
 from app.config import settings
 from app.state import state_store
+from app.broadcaster import broadcaster
 from app import persistence
 
 logger = logging.getLogger(__name__)
@@ -49,7 +50,7 @@ def _parse_bool(value: str) -> bool | None:
     return None
 
 async def _handle_line(line: str) -> None:
-    """Parse one SBS line, update state, and persist to DB."""
+    """Parse one SBS line, update state, persist, and broadcast."""
     parts = line.strip().split(",")
     if len(parts) < 22 or parts[0] != "MSG":
         return
@@ -93,10 +94,10 @@ async def _handle_line(line: str) -> None:
     if not updates:
         return
 
-    # Update in-memory state (for live map)
-    await state_store.upsert(icao, **updates)
+    # Update in-memory state
+    aircraft = await state_store.upsert(icao, **updates)
 
-    # Persist to DB (for history/replay)
+    # Persist to DB
     try:
         await persistence.record_position(
             icao=icao,
@@ -111,6 +112,28 @@ async def _handle_line(line: str) -> None:
         )
     except Exception:
         logger.exception("Failed to persist position for %s", icao)
+
+    # Broadcast to WebSocket subscribers
+    await broadcaster.publish({
+        "type": "position_update",
+        "data": {
+            "icao": aircraft.icao,
+            "callsign": aircraft.callsign,
+            "registration": aircraft.registration,
+            "aircraft_type": aircraft.aircraft_type,
+            "lat": aircraft.lat,
+            "lon": aircraft.lon,
+            "altitude_ft": aircraft.altitude_ft,
+            "ground_speed_kt": aircraft.ground_speed_kt,
+            "heading_deg": aircraft.heading_deg,
+            "vertical_rate_fpm": aircraft.vertical_rate_fpm,
+            "on_ground": aircraft.on_ground,
+            "last_position_at": (
+                aircraft.last_position_at.isoformat().replace("+00:00", "Z")
+                if aircraft.last_position_at else None
+            ),
+        },
+    })
 
 async def _ingest_loop() -> None:
     """Connect to dump1090 and read lines. Reconnect on failure."""

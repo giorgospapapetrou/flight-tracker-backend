@@ -4,14 +4,20 @@ from __future__ import annotations
 
 from datetime import date, datetime, time, timedelta, timezone
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Depends
 from pydantic import BaseModel, field_serializer
 from sqlalchemy import func, select
 from sqlalchemy.orm import selectinload
 
 from app.db import Aircraft, Flight, Position, SessionLocal
+from app.auth import require_api_key
 
-router = APIRouter(prefix="/flights", tags=["flights"])
+
+router = APIRouter(
+    prefix="/flights",
+    tags=["flights"],
+    dependencies=[Depends(require_api_key)],
+)
 
 class FlightSummary(BaseModel):
     id: int
