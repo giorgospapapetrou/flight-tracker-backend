@@ -15,6 +15,7 @@ from datetime import datetime, timezone
 
 from app.config import settings
 from app.state import state_store
+from app import persistence
 
 logger = logging.getLogger(__name__)
 
@@ -47,9 +48,8 @@ def _parse_bool(value: str) -> bool | None:
         return False
     return None
 
-
 async def _handle_line(line: str) -> None:
-    """Parse one SBS line and update state."""
+    """Parse one SBS line, update state, and persist to DB."""
     parts = line.strip().split(",")
     if len(parts) < 22 or parts[0] != "MSG":
         return
@@ -90,9 +90,27 @@ async def _handle_line(line: str) -> None:
     if on_ground is not None:
         updates["on_ground"] = on_ground
 
-    if updates:
-        await state_store.upsert(icao, **updates)
+    if not updates:
+        return
 
+    # Update in-memory state (for live map)
+    await state_store.upsert(icao, **updates)
+
+    # Persist to DB (for history/replay)
+    try:
+        await persistence.record_position(
+            icao=icao,
+            callsign=updates.get("callsign"),
+            lat=updates.get("lat"),
+            lon=updates.get("lon"),
+            altitude_ft=updates.get("altitude_ft"),
+            ground_speed_kt=updates.get("ground_speed_kt"),
+            heading_deg=updates.get("heading_deg"),
+            vertical_rate_fpm=updates.get("vertical_rate_fpm"),
+            on_ground=updates.get("on_ground", False),
+        )
+    except Exception:
+        logger.exception("Failed to persist position for %s", icao)
 
 async def _ingest_loop() -> None:
     """Connect to dump1090 and read lines. Reconnect on failure."""
@@ -138,9 +156,8 @@ async def _ingest_loop() -> None:
         await asyncio.sleep(backoff)
         backoff = min(backoff * 2, 30.0)
 
-
 async def _prune_loop() -> None:
-    """Periodically remove stale aircraft from the state store."""
+    """Periodically remove stale aircraft from in-memory store + close stale flights."""
     while True:
         try:
             await asyncio.sleep(15)
@@ -148,16 +165,30 @@ async def _prune_loop() -> None:
                 settings.aircraft_stale_seconds
             )
             if removed:
-                logger.debug("Pruned %d stale aircraft", removed)
+                logger.debug("Pruned %d stale aircraft from memory", removed)
+            await persistence.close_stale_flights()
         except asyncio.CancelledError:
             raise
         except Exception:
             logger.exception("Prune loop error")
 
 
+async def _cleanup_loop() -> None:
+    """Periodically delete data older than retention period."""
+    while True:
+        try:
+            await asyncio.sleep(3600)  # every hour
+            await persistence.cleanup_old_data()
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("Cleanup loop error")
+
+
 def start_background_tasks() -> list[asyncio.Task]:
-    """Launch the ingestor and pruner as background tasks."""
+    """Launch the ingestor, pruner, and cleanup as background tasks."""
     return [
         asyncio.create_task(_ingest_loop(), name="ingestor"),
         asyncio.create_task(_prune_loop(), name="pruner"),
+        asyncio.create_task(_cleanup_loop(), name="cleanup"),
     ]

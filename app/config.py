@@ -21,5 +21,14 @@ class Settings(BaseSettings):
     # How long before an aircraft is considered "gone" (seconds)
     aircraft_stale_seconds: int = 60
 
+    # Gap between sightings that ends a flight (seconds)
+    flight_gap_seconds: int = 600  # 10 minutes
+
+    # Database file
+    database_path: str = "data/flight_tracker.db"
+
+    # Data retention
+    retention_hours: int = 24
+
 
 settings = Settings()
