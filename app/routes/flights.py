@@ -5,14 +5,13 @@ from __future__ import annotations
 from datetime import date, datetime, time, timedelta, timezone
 
 from fastapi import APIRouter, HTTPException, Query
-from pydantic import BaseModel
+from pydantic import BaseModel, field_serializer
 from sqlalchemy import func, select
 from sqlalchemy.orm import selectinload
 
 from app.db import Aircraft, Flight, Position, SessionLocal
 
 router = APIRouter(prefix="/flights", tags=["flights"])
-
 
 class FlightSummary(BaseModel):
     id: int
@@ -26,6 +25,13 @@ class FlightSummary(BaseModel):
     max_altitude_ft: int | None
     min_altitude_ft: int | None
 
+    @field_serializer("started_at", "ended_at")
+    def _serialize_dt(self, dt: datetime | None) -> str | None:
+        if dt is None:
+            return None
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.isoformat().replace("+00:00", "Z")
 
 class FlightsResponse(BaseModel):
     flights: list[FlightSummary]
@@ -40,6 +46,11 @@ class PositionPoint(BaseModel):
     hdg: int | None
     vr: int | None
 
+    @field_serializer("t")
+    def _serialize_dt(self, dt: datetime) -> str:
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.isoformat().replace("+00:00", "Z")
 
 class FlightPositionsResponse(BaseModel):
     flight_id: int

@@ -5,7 +5,8 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 from fastapi import APIRouter
-from pydantic import BaseModel
+from pydantic import BaseModel, field_serializer
+
 
 from app.config import settings
 from app.state import state_store
@@ -27,11 +28,24 @@ class AircraftOut(BaseModel):
     on_ground: bool
     last_position_at: datetime | None
 
+    @field_serializer("last_position_at")
+    def _serialize_dt(self, dt: datetime | None) -> str | None:
+        if dt is None:
+            return None
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.isoformat().replace("+00:00", "Z")
+
 
 class CurrentAircraftResponse(BaseModel):
     aircraft: list[AircraftOut]
     server_time: datetime
 
+    @field_serializer("server_time")
+    def _serialize_dt(self, dt: datetime) -> str:
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.isoformat().replace("+00:00", "Z")
 
 @router.get("/current", response_model=CurrentAircraftResponse)
 async def current_aircraft() -> CurrentAircraftResponse:
