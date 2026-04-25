@@ -71,12 +71,16 @@ async def stream(
             await websocket.send_json(event)
     except WebSocketDisconnect:
         logger.info("WebSocket client disconnected")
+    except RuntimeError as e:
+        # Client closed mid-send; not an error, just a cleanup race.
+        logger.info("WebSocket closed during send: %s", e)
     except Exception:
         logger.exception("WebSocket error")
+
     finally:
         ping_task.cancel()
         broadcaster.unsubscribe(queue)
         try:
-            await websocket.close()
-        except Exception:
-            pass
+            await asyncio.wait_for(websocket.close(), timeout=2.0)
+        except (asyncio.TimeoutError, Exception):
+            pass 

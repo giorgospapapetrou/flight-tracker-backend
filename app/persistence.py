@@ -9,7 +9,8 @@ from __future__ import annotations
 import logging
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import select, update
+from sqlalchemy import delete, select
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
 from app.config import settings
 from app.db import Aircraft, Flight, Position, SessionLocal
@@ -42,17 +43,16 @@ async def record_position(
     gap = timedelta(seconds=settings.flight_gap_seconds)
 
     async with SessionLocal() as session:
-        # 1. Upsert aircraft
-        aircraft = await session.get(Aircraft, icao)
-        if aircraft is None:
-            aircraft = Aircraft(
-                icao=icao,
-                first_seen=now,
-                last_seen=now,
-            )
-            session.add(aircraft)
-        else:
-            aircraft.last_seen = now
+        # 1. Upsert aircraft (atomic INSERT ... ON CONFLICT DO UPDATE)
+        upsert_stmt = sqlite_insert(Aircraft).values(
+            icao=icao,
+            first_seen=now,
+            last_seen=now,
+        ).on_conflict_do_update(
+            index_elements=["icao"],
+            set_=dict(last_seen=now),
+        )
+        await session.execute(upsert_stmt)
 
         # 2. Determine the right flight
         flight_id = _open_flights.get(icao)
@@ -159,7 +159,6 @@ async def cleanup_old_data() -> tuple[int, int]:
 
     async with SessionLocal() as session:
         # Delete old positions
-        from sqlalchemy import delete
         pos_result = await session.execute(
             delete(Position).where(Position.timestamp < cutoff)
         )
