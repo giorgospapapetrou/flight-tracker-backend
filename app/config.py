@@ -28,7 +28,7 @@ class Settings(BaseSettings):
     database_path: str = "data/flight_tracker.db"
 
     # Data retention
-    retention_hours: int = 24
+    retention_hours: int = 168  # 7 days
 
     # Authentication
     api_key: str

@@ -72,9 +72,9 @@ async def list_flights(
     flight_date: date | None = Query(default=None, alias="date"),
 ) -> FlightsResponse:
     """List flights observed on the given date (defaults to today UTC)."""
-    target_date = flight_date or datetime.now(timezone.utc).date()
-    day_start = datetime.combine(target_date, time.min, tzinfo=timezone.utc)
-    day_end = day_start + timedelta(days=1)
+    now = datetime.now(timezone.utc)
+    day_end = now + timedelta(minutes=1)  # tiny buffer for in-flight flights
+    day_start = now - timedelta(days=7)
 
     async with SessionLocal() as session:
         stmt = (
